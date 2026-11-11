@@ -1,50 +1,71 @@
 import asyncio
 import datetime
 import logging
+import os
 import sqlite3
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-TOKEN = "8669831808:AAExxfJ91v-fv3np4RxnGT8wQ7B2PtFGmxo"
-CHANNEL_USERNAME = "@smartsartaroshxona"  # Majburiy kanal username (masalan: @sartaroshxona_kanal)
+TOKEN = "8669831808:AAFf69PKZySSV03jn73CIvurtaeviI2bth0"
+CHANNEL_USERNAME = "@smartsartaroshxona"  # To'g'ri formatga keltirildi (faqat @username)
 ADMIN_ID = 8052376816
 ADMIN_USERNAME = "@norboyevtg"
 CARD_NUMBER = "5614 6820 2750 2089"
 CARD_HOLDER = "Xomidjonov Q"
 VERCEL_LINK = "https://sartaroshxona-plum.vercel.app/"
 
+
 # Bazani sozlash
 def init_db():
     conn = sqlite3.connect("bot_base.db")
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            full_name TEXT,
-            username TEXT,
-            balance INTEGER DEFAULT 0,
-            trial_end TEXT,
-            status TEXT DEFAULT 'active'
-        )
-    """)
+                   CREATE TABLE IF NOT EXISTS users
+                   (
+                       user_id
+                       INTEGER
+                       PRIMARY
+                       KEY,
+                       full_name
+                       TEXT,
+                       username
+                       TEXT,
+                       balance
+                       INTEGER
+                       DEFAULT
+                       0,
+                       trial_end
+                       TEXT,
+                       status
+                       TEXT
+                       DEFAULT
+                       'active'
+                   )
+                   """)
     conn.commit()
     conn.close()
 
+
 init_db()
+
 
 def get_db():
     return sqlite3.connect("bot_base.db")
 
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
 
 # Holatlar (FSM)
 class AdminStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_amount = State()
+
 
 # Kanalga obuna tekshirish
 async def check_subscription(user_id: int) -> bool:
@@ -55,6 +76,7 @@ async def check_subscription(user_id: int) -> bool:
         return False
     except Exception:
         return False
+
 
 # /start komandasi
 @dp.message(Command("start"))
@@ -79,7 +101,6 @@ async def cmd_start(message: Message):
         )
         conn.commit()
     else:
-        # Agar ilgari chiqib ketgan bo'lsa (bloklagan bo'lsa), statusini active qilish
         cursor.execute("UPDATE users SET status = 'active' WHERE user_id = ?", (user_id,))
         conn.commit()
     conn.close()
@@ -88,7 +109,8 @@ async def cmd_start(message: Message):
     is_subscribed = await check_subscription(user_id)
     if not is_subscribed:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Kanalga obuna bo'lish", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")],
+            [InlineKeyboardButton(text="📢 Kanalga obuna bo'lish",
+                                  url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")],
             [InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub")]
         ])
         await message.answer(
@@ -98,6 +120,7 @@ async def cmd_start(message: Message):
         return
 
     await show_main_menu(message)
+
 
 async def show_main_menu(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -109,6 +132,7 @@ async def show_main_menu(message: Message):
 
     await message.answer("Assalomu alaykum! Xush kelibsiz. Kerakli bo'limni tanlang:", reply_markup=keyboard)
 
+
 @dp.callback_query(F.data == "check_sub")
 async def process_check_sub(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -118,6 +142,7 @@ async def process_check_sub(callback: CallbackQuery):
         await show_main_menu(callback.message)
     else:
         await callback.answer("Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
+
 
 # Hisobim bo'limi
 @dp.callback_query(F.data == "my_account")
@@ -154,6 +179,7 @@ async def my_account(callback: CallbackQuery):
         ])
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
+
 # Hisobni to'ldirish sahifasi
 @dp.callback_query(F.data == "top_up")
 async def top_up_menu(callback: CallbackQuery):
@@ -170,6 +196,7 @@ async def top_up_menu(callback: CallbackQuery):
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
+
 # Vercel linkni chiqarish
 @dp.callback_query(F.data == "get_link")
 async def get_vercel_link(callback: CallbackQuery):
@@ -185,7 +212,6 @@ async def get_vercel_link(callback: CallbackQuery):
         trial_end = datetime.datetime.strptime(trial_end_str, "%Y-%m-%d %H:%M:%S")
         now = datetime.datetime.now()
 
-        # Sinov muddati tugagan bo'lsa va balansi 9000 dan kam bo'lsa
         if now > trial_end and balance < 9000:
             await callback.answer(
                 "❌ Balansingiz yetarli emas yoki sinov muddati tugagan! Iltimos, hisobni to'ldiring.",
@@ -202,10 +228,12 @@ async def get_vercel_link(callback: CallbackQuery):
             reply_markup=keyboard
         )
 
+
 @dp.callback_query(F.data == "back_home")
 async def back_home(callback: CallbackQuery):
     await callback.message.delete()
     await show_main_menu(callback.message)
+
 
 # --- ADMIN PANEL ---
 @dp.callback_query(F.data == "admin_panel")
@@ -239,6 +267,7 @@ async def admin_panel(callback: CallbackQuery):
     ])
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
+
 @dp.callback_query(F.data == "admin_add_balance")
 async def admin_add_balance_start(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
@@ -246,6 +275,7 @@ async def admin_add_balance_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Foydalanuvchining ID raqamini kiriting:")
     await state.set_state(AdminStates.waiting_for_user_id)
     await callback.answer()
+
 
 @dp.message(AdminStates.waiting_for_user_id)
 async def admin_get_user_id(message: Message, state: FSMContext):
@@ -258,6 +288,7 @@ async def admin_get_user_id(message: Message, state: FSMContext):
         await state.set_state(AdminStates.waiting_for_amount)
     except ValueError:
         await message.answer("Iltimos, to'g'ri ID raqamini kiriting (faqat raqam):")
+
 
 @dp.message(AdminStates.waiting_for_amount)
 async def admin_get_amount(message: Message, state: FSMContext):
@@ -276,8 +307,7 @@ async def admin_get_amount(message: Message, state: FSMContext):
 
         await message.answer(f"✅ Foydalanuvchi (`{target_id}`) balansiga {amount} so'm qo'shildi!")
         await state.clear()
-        
-        # Foydalanuvchiga xabar yuborishga harakat qilish
+
         try:
             await bot.send_message(target_id, f"🎉 Hisobingizga admin tomonidan **{amount} so'm** qo'shildi!")
         except Exception:
@@ -286,10 +316,27 @@ async def admin_get_amount(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("Iltimos, summani raqam bilan kiriting:")
 
-# Asosiy ishga tushirish funksiyasi
+
+# --- RENDER UCHUN PORT OCHUVCHI WEB SERVER ---
+async def handle(request):
+    return web.Response(text="Bot ishlayapti!")
+
+
+async def web_server():
+    app = web.Application()
+    app.router.add_get("/", handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+
 async def main():
-    print("Bot ishga tushdi...")
+    await web_server()
+    print("Bot va veb-server muvaffaqiyatli ishga tushdi...")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
