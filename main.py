@@ -18,7 +18,7 @@ from aiogram.types import (
     Message,
 )
 
-TOKEN = "BU_YERGA_YANGI_TOKEN"  # Eski tokenni BotFather orqali yangilang
+TOKEN = "8669831808:AAF0sraDDj6xMMOgd9exy8iHym9XgEP6xE0"  # Eski tokenni BotFather orqali yangilang
 CHANNEL_USERNAME = "@smartsartaroshxona"
 ADMIN_ID = 8052376816
 ADMIN_USERNAME = "@norboyevtg"
