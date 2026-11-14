@@ -24,7 +24,7 @@ ADMIN_ID = 8052376816
 ADMIN_USERNAME = "@norboyevtg"
 CARD_NUMBER = "5614 6820 2750 2089"
 CARD_HOLDER = "Xomidjonov Q"
-APK_PATH = Path(__file__).parent / "smart_sartaroshxona.apk"
+APK_PATH = Path(__file__).parent / "app-release.apk"
 MONTHLY_PRICE = 9000
 
 
