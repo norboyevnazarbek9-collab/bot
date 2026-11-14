@@ -3,49 +3,44 @@ import datetime
 import logging
 import os
 import sqlite3
+from pathlib import Path
+
 from aiohttp import web
-from aiogram import Bot, Dispatcher, F, Router
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
-TOKEN = "8669831808:AAFf69PKZySSV03jn73CIvurtaeviI2bth0"
-CHANNEL_USERNAME = "@smartsartaroshxona"  # To'g'ri formatga keltirildi (faqat @username)
+TOKEN = "BU_YERGA_YANGI_TOKEN"  # Eski tokenni BotFather orqali yangilang
+CHANNEL_USERNAME = "@smartsartaroshxona"
 ADMIN_ID = 8052376816
 ADMIN_USERNAME = "@norboyevtg"
 CARD_NUMBER = "5614 6820 2750 2089"
 CARD_HOLDER = "Xomidjonov Q"
-VERCEL_LINK = "https://sartaroshxona-plum.vercel.app/"
+APK_PATH = Path(__file__).parent / "smart_sartaroshxona.apk"
+MONTHLY_PRICE = 9000
 
 
 # Bazani sozlash
 def init_db():
     conn = sqlite3.connect("bot_base.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-                   CREATE TABLE IF NOT EXISTS users
-                   (
-                       user_id
-                       INTEGER
-                       PRIMARY
-                       KEY,
-                       full_name
-                       TEXT,
-                       username
-                       TEXT,
-                       balance
-                       INTEGER
-                       DEFAULT
-                       0,
-                       trial_end
-                       TEXT,
-                       status
-                       TEXT
-                       DEFAULT
-                       'active'
-                   )
-                   """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            full_name TEXT,
+            username TEXT,
+            balance INTEGER DEFAULT 0,
+            trial_end TEXT,
+            status TEXT DEFAULT 'active'
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -61,24 +56,39 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 
-# Holatlar (FSM)
 class AdminStates(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_amount = State()
 
 
-# Kanalga obuna tekshirish
 async def check_subscription(user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
-        if member.status in ["member", "administrator", "creator"]:
-            return True
-        return False
+        return member.status in ["member", "administrator", "creator"]
     except Exception:
         return False
 
 
-# /start komandasi
+def has_access(balance: int, trial_end_str: str) -> bool:
+    trial_end = datetime.datetime.strptime(trial_end_str, "%Y-%m-%d %H:%M:%S")
+    return datetime.datetime.now() <= trial_end or balance >= MONTHLY_PRICE
+
+
+async def show_main_menu(chat_id: int, user_id: int):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 Hisobim", callback_data="my_account"),
+         InlineKeyboardButton(text="📱 APK yuklash", callback_data="get_apk")]
+    ])
+    if user_id == ADMIN_ID:
+        keyboard.inline_keyboard.append(
+            [InlineKeyboardButton(text="👑 Admin Panel", callback_data="admin_panel")]
+        )
+    await bot.send_message(
+        chat_id, "Assalomu alaykum! Xush kelibsiz. Kerakli bo'limni tanlang:",
+        reply_markup=keyboard
+    )
+
+
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     user_id = message.from_user.id
@@ -87,27 +97,21 @@ async def cmd_start(message: Message):
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT user_id, trial_end, status FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
 
-    now = datetime.datetime.now()
-
     if not user:
-        # Yangi foydalanuvchi uchun 15 kunlik bepul sinov muddati
-        trial_end = (now + datetime.timedelta(days=15)).strftime("%Y-%m-%d %H:%M:%S")
+        trial_end = (datetime.datetime.now() + datetime.timedelta(days=15)).strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
             "INSERT INTO users (user_id, full_name, username, trial_end, status) VALUES (?, ?, ?, ?, ?)",
             (user_id, full_name, username, trial_end, "active")
         )
-        conn.commit()
     else:
         cursor.execute("UPDATE users SET status = 'active' WHERE user_id = ?", (user_id,))
-        conn.commit()
+    conn.commit()
     conn.close()
 
-    # Majburiy obunani tekshirish
-    is_subscribed = await check_subscription(user_id)
-    if not is_subscribed:
+    if not await check_subscription(user_id):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 Kanalga obuna bo'lish",
                                   url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")],
@@ -119,32 +123,18 @@ async def cmd_start(message: Message):
         )
         return
 
-    await show_main_menu(message)
-
-
-async def show_main_menu(message: Message):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Hisobim", callback_data="my_account"),
-         InlineKeyboardButton(text="🔗 Vercel Havola", callback_data="get_link")]
-    ])
-    if message.from_user.id == ADMIN_ID:
-        keyboard.inline_keyboard.append([InlineKeyboardButton(text="👑 Admin Panel", callback_data="admin_panel")])
-
-    await message.answer("Assalomu alaykum! Xush kelibsiz. Kerakli bo'limni tanlang:", reply_markup=keyboard)
+    await show_main_menu(message.chat.id, user_id)
 
 
 @dp.callback_query(F.data == "check_sub")
 async def process_check_sub(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    is_subscribed = await check_subscription(user_id)
-    if is_subscribed:
+    if await check_subscription(callback.from_user.id):
         await callback.message.delete()
-        await show_main_menu(callback.message)
+        await show_main_menu(callback.message.chat.id, callback.from_user.id)
     else:
         await callback.answer("Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
 
 
-# Hisobim bo'limi
 @dp.callback_query(F.data == "my_account")
 async def my_account(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -154,41 +144,40 @@ async def my_account(callback: CallbackQuery):
     user = cursor.fetchone()
     conn.close()
 
-    if user:
-        balance, trial_end_str = user
-        trial_end = datetime.datetime.strptime(trial_end_str, "%Y-%m-%d %H:%M:%S")
-        now = datetime.datetime.now()
+    if not user:
+        await callback.answer("Avval /start buyrug'ini yuboring.", show_alert=True)
+        return
 
-        trial_status = ""
-        if now < trial_end:
-            left_days = (trial_end - now).days
-            trial_status = f"🎁 Bepul sinov muddati: {left_days} kun qoldi\n"
-        else:
-            trial_status = "❌ Bepul sinov muddati tugagan\n"
+    balance, trial_end_str = user
+    trial_end = datetime.datetime.strptime(trial_end_str, "%Y-%m-%d %H:%M:%S")
+    if datetime.datetime.now() < trial_end:
+        left_days = (trial_end - datetime.datetime.now()).days
+        trial_status = f"🎁 Bepul sinov muddati: {left_days} kun qoldi\n"
+    else:
+        trial_status = "❌ Bepul sinov muddati tugagan\n"
 
-        text = (
-            f"👤 **Sizning ma'lumotlaringiz:**\n\n"
-            f"🆔 ID: `{user_id}`\n"
-            f"💰 Balansingiz: **{balance} so'm**\n"
-            f"{trial_status}"
-            f"📌 Oylik to'lov: **9,000 so'm / oy**"
-        )
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Hisobni to'ldirish", callback_data="top_up")],
-            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_home")]
-        ])
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    text = (
+        f"👤 **Sizning ma'lumotlaringiz:**\n\n"
+        f"🆔 ID: `{user_id}`\n"
+        f"💰 Balansingiz: **{balance} so'm**\n"
+        f"{trial_status}"
+        f"📌 Oylik to'lov: **{MONTHLY_PRICE:,} so'm / oy**"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Hisobni to'ldirish", callback_data="top_up")],
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_home")]
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
-# Hisobni to'ldirish sahifasi
 @dp.callback_query(F.data == "top_up")
 async def top_up_menu(callback: CallbackQuery):
     text = (
         f"💳 **Hisobni to'ldirish uchun:**\n\n"
-        f"Quyidagi karta raqamiga **9,000 so'm** (yoki kerakli miqdor) o'tkazing:\n\n"
+        f"Quyidagi karta raqamiga **{MONTHLY_PRICE:,} so'm** (yoki kerakli miqdor) o'tkazing:\n\n"
         f"💳 Karta: `{CARD_NUMBER}`\n"
         f"👤 Egasi: `{CARD_HOLDER}`\n\n"
-        f"Pulni o'tkazgandan so'ng chekni yoki kvitansiyani adminga yuboring va ID raqamingizni ayting: {ADMIN_USERNAME}\n\n"
+        f"Pulni o'tkazgandan so'ng chekni adminga yuboring va ID raqamingizni ayting: {ADMIN_USERNAME}\n\n"
         f"🆔 Sizning ID raqamingiz: `{callback.from_user.id}`"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -197,42 +186,49 @@ async def top_up_menu(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
-# Vercel linkni chiqarish
-@dp.callback_query(F.data == "get_link")
-async def get_vercel_link(callback: CallbackQuery):
+# APK yuborish
+@dp.callback_query(F.data == "get_apk")
+async def get_apk(callback: CallbackQuery):
     user_id = callback.from_user.id
+
+    if not await check_subscription(user_id):
+        await callback.answer("Avval kanalga obuna bo'ling!", show_alert=True)
+        return
+
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT balance, trial_end FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
     conn.close()
 
-    if user:
-        balance, trial_end_str = user
-        trial_end = datetime.datetime.strptime(trial_end_str, "%Y-%m-%d %H:%M:%S")
-        now = datetime.datetime.now()
+    if not user:
+        await callback.answer("Avval /start buyrug'ini yuboring.", show_alert=True)
+        return
 
-        if now > trial_end and balance < 9000:
-            await callback.answer(
-                "❌ Balansingiz yetarli emas yoki sinov muddati tugagan! Iltimos, hisobni to'ldiring.",
-                show_alert=True
-            )
-            return
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🌐 Saytga o'tish", url=VERCEL_LINK)],
-            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_home")]
-        ])
-        await callback.message.edit_text(
-            f"✅ Marhamat, siz uchun Vercel havola:\n\n🔗 {VERCEL_LINK}",
-            reply_markup=keyboard
+    balance, trial_end_str = user
+    if not has_access(balance, trial_end_str):
+        await callback.answer(
+            "❌ Sinov muddati tugagan yoki balans yetarli emas. Hisobni to'ldiring.",
+            show_alert=True
         )
+        return
+
+    if not APK_PATH.exists():
+        await callback.answer("Fayl topilmadi, admin bilan bog'laning.", show_alert=True)
+        return
+
+    await callback.answer()
+    await bot.send_document(
+        chat_id=callback.message.chat.id,
+        document=FSInputFile(APK_PATH),
+        caption="📱 Smart Sartaroshxona dasturi.\nO'rnatish uchun faylni oching.",
+    )
 
 
 @dp.callback_query(F.data == "back_home")
 async def back_home(callback: CallbackQuery):
     await callback.message.delete()
-    await show_main_menu(callback.message)
+    await show_main_menu(callback.message.chat.id, callback.from_user.id)
 
 
 # --- ADMIN PANEL ---
@@ -246,10 +242,8 @@ async def admin_panel(callback: CallbackQuery):
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM users")
     total_users = cursor.fetchone()[0]
-
     cursor.execute("SELECT COUNT(*) FROM users WHERE status = 'active'")
     active_users = cursor.fetchone()[0]
-
     cursor.execute("SELECT COUNT(*) FROM users WHERE status = 'blocked'")
     blocked_users = cursor.fetchone()[0]
     conn.close()
@@ -296,25 +290,26 @@ async def admin_get_amount(message: Message, state: FSMContext):
         return
     try:
         amount = int(message.text)
-        data = await state.get_data()
-        target_id = data["target_id"]
-
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
-        conn.commit()
-        conn.close()
-
-        await message.answer(f"✅ Foydalanuvchi (`{target_id}`) balansiga {amount} so'm qo'shildi!")
-        await state.clear()
-
-        try:
-            await bot.send_message(target_id, f"🎉 Hisobingizga admin tomonidan **{amount} so'm** qo'shildi!")
-        except Exception:
-            pass
-
     except ValueError:
         await message.answer("Iltimos, summani raqam bilan kiriting:")
+        return
+
+    data = await state.get_data()
+    target_id = data["target_id"]
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, target_id))
+    conn.commit()
+    conn.close()
+
+    await message.answer(f"✅ Foydalanuvchi (`{target_id}`) balansiga {amount} so'm qo'shildi!")
+    await state.clear()
+
+    try:
+        await bot.send_message(target_id, f"🎉 Hisobingizga admin tomonidan {amount} so'm qo'shildi!")
+    except Exception:
+        pass
 
 
 # --- RENDER UCHUN PORT OCHUVCHI WEB SERVER ---
@@ -328,8 +323,7 @@ async def web_server():
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
+    await web.TCPSite(runner, "0.0.0.0", port).start()
 
 
 async def main():
