@@ -26,6 +26,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 BASE_DIR = Path(__file__).parent
 DB_PATH = Path(os.environ.get("DB_PATH", BASE_DIR / "bot_base.db"))
 LOCAL_APK_PATH = Path(os.environ.get("APK_PATH", BASE_DIR / "app-release.apk"))
+
 # Token faqat Render Environment'dan olinadi (kod ichida yozilmaydi)
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 if not TOKEN:
@@ -39,7 +40,11 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "https://sartaroshuz.onrender.com").
 APK_GITHUB_URL = os.environ.get(
     "APK_GITHUB_URL",
     "https://github.com/USERNAME/REPO/releases/latest/download/app-release.apk",
-)API_SECRET = os.environ.get("BOT_API_SECRET", "").strip() or "072d36a42a7289926409bc7448efc9a3"
+)
+
+# Secret Render Environment'dan olinadi, bo'lmasa zaxira qiymat ishlatiladi.
+# Backend (routes/telegram.js) dagi zaxira qiymat bilan bir xil bo'lishi shart.
+API_SECRET = os.environ.get("BOT_API_SECRET", "").strip() or "072d36a42a7289926409bc7448efc9a3"
 if not API_SECRET:
     logging.warning("BOT_API_SECRET kiritilmagan! Raqamni backend'ga ulash ishlamaydi.")
 
