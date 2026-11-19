@@ -170,11 +170,15 @@ async def link_phone_to_backend(phone: str, chat_id: int) -> bool:
 
 
 def get_bottom_menu(user_id: int) -> ReplyKeyboardMarkup:
-    rows = []
-    if not get_phone(user_id):
-        rows.append([KeyboardButton(text=BTN_SHARE, request_contact=True)])
-    rows.append([KeyboardButton(text=BTN_APK)])
-    rows.append([KeyboardButton(text=BTN_WEB), KeyboardButton(text=BTN_CONTACT)])
+    """
+    "📱 Raqamni ulashish" tugmasi har doim menyuda turadi,
+    shunda foydalanuvchi xohlagan vaqtda raqamini qayta ulashi mumkin.
+    """
+    rows = [
+        [KeyboardButton(text=BTN_SHARE, request_contact=True)],
+        [KeyboardButton(text=BTN_APK)],
+        [KeyboardButton(text=BTN_WEB), KeyboardButton(text=BTN_CONTACT)],
+    ]
     if user_id == ADMIN_ID:
         rows.append([KeyboardButton(text=BTN_ADMIN)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -209,19 +213,19 @@ def build_subscribe_keyboard() -> InlineKeyboardMarkup:
 
 
 async def show_main_menu(chat_id: int, user_id: int) -> None:
-    if get_phone(user_id):
-        hint = "Pastki menyudan kerakli bo'limni tanlang:"
+    linked_phone = get_phone(user_id)
+    if linked_phone:
+        status_note = f"✅ Raqamingiz ulangan (`+{linked_phone}`)."
     else:
-        hint = (
-            "Saytda ro'yxatdan o'tish uchun avval «📱 Raqamni ulashish» tugmasini bosing.\n"
-            "Pastki menyudan kerakli bo'limni tanlang:"
-        )
+        status_note = "Saytda ro'yxatdan o'tish uchun avval «📱 Raqamni ulashish» tugmasini bosing."
+
     await bot.send_message(
         chat_id=chat_id,
         text=(
             "Assalomu alaykum! Xush kelibsiz.\n"
             f"🆔 Sizning Telegram ID: `{user_id}`\n\n"
-            f"{hint}"
+            f"{status_note}\n"
+            "Pastki menyudan kerakli bo'limni tanlang:"
         ),
         reply_markup=get_bottom_menu(user_id),
         parse_mode="Markdown",
@@ -330,8 +334,10 @@ async def on_contact(message: Message) -> None:
     if ok:
         set_phone(user_id, phone)
         await message.answer(
-            "✅ Raqamingiz saqlandi.\nEndi saytga qaytib, «Kod yuborish» tugmasini bosing.",
+            f"✅ Raqamingiz (`+{phone}`) saqlandi!\n"
+            "Endi saytga kirib, shu raqamni yozing va «Kod yuborish» tugmasini bosing.",
             reply_markup=get_bottom_menu(user_id),
+            parse_mode="Markdown",
         )
     else:
         await message.answer(
