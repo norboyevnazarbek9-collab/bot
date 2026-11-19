@@ -3,7 +3,6 @@ import logging
 import os
 import re
 import sqlite3
-import tempfile
 from pathlib import Path
 
 import aiohttp
@@ -21,13 +20,15 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = Path(os.environ.get("DB_PATH", BASE_DIR / "bot_base.db"))
 LOCAL_APK_PATH = Path(os.environ.get("APK_PATH", BASE_DIR / "app-release.apk"))
 
-# Token faqat Render Environment'dan olinadi (kod ichida yozilmaydi)
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 if not TOKEN:
     raise SystemExit("BOT_TOKEN environment variable kiritilmagan!")
@@ -42,11 +43,9 @@ APK_GITHUB_URL = os.environ.get(
     "https://github.com/USERNAME/REPO/releases/latest/download/app-release.apk",
 )
 
-# Secret Render Environment'dan olinadi, bo'lmasa zaxira qiymat ishlatiladi.
-# Backend (routes/telegram.js) dagi zaxira qiymat bilan bir xil bo'lishi shart.
-API_SECRET = os.environ.get("BOT_API_SECRET", "").strip() or "072d36a42a7289926409bc7448efc9a3"
+API_SECRET = os.environ.get("BOT_API_SECRET", "").strip()
 if not API_SECRET:
-    logging.warning("BOT_API_SECRET kiritilmagan! Raqamni backend'ga ulash ishlamaydi.")
+    logging.warning("BOT_API_SECRET kiritilmagan! /tg-link va /tg-linked 401 qaytaradi.")
 
 # --- MENYU TUGMALARI ---
 BTN_SHARE = "📱 Raqamni ulashish"
@@ -66,11 +65,11 @@ def init_db() -> None:
                 user_id INTEGER PRIMARY KEY,
                 full_name TEXT,
                 username TEXT,
-                status TEXT DEFAULT 'active'
+                status TEXT DEFAULT 'active',
+                phone TEXT
             )
             """
         )
-        # Eski bazada phone ustuni bo'lmasa, qo'shamiz
         cols = [row[1] for row in conn.execute("PRAGMA table_info(users)")]
         if "phone" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN phone TEXT")
@@ -93,6 +92,13 @@ def set_phone(user_id: int, phone: str) -> None:
         conn.commit()
 
 
+def normalize_phone(raw_phone: str) -> str:
+    digits = re.sub(r"\D", "", raw_phone or "")
+    if len(digits) == 9:
+        return "998" + digits
+    return digits
+
+
 init_db()
 
 bot = Bot(token=TOKEN)
@@ -107,12 +113,13 @@ async def check_subscription(user_id: int) -> bool:
         member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
         return member.status in {"member", "administrator", "creator"}
     except Exception as e:
-        logging.warning(f"Obunani tekshirishda xato (user_id={user_id}, kanal={CHANNEL_USERNAME}): {e}")
+        logging.warning(
+            f"Obunani tekshirishda xato (user_id={user_id}, kanal={CHANNEL_USERNAME}): {e}"
+        )
         return False
 
 
 async def backend_is_linked(chat_id: int) -> bool:
-    """Backend'da bu chat_id uchun raqam saqlanganmi (baza o'chib ketgan holat uchun)."""
     if not API_SECRET:
         return False
     try:
@@ -134,7 +141,6 @@ async def backend_is_linked(chat_id: int) -> bool:
 
 
 async def link_phone_to_backend(phone: str, chat_id: int) -> bool:
-    """Raqam va chat_id ni backend (PostgreSQL) ga yozadi. Vaqtinchalik xatoda 3 marta urinadi."""
     if not API_SECRET:
         logging.error("BOT_API_SECRET yo'q, so'rov yuborilmadi!")
         return False
@@ -146,13 +152,12 @@ async def link_phone_to_backend(phone: str, chat_id: int) -> bool:
                     f"{BACKEND_URL}/api/tg-link",
                     json={"phone": phone, "chatId": chat_id},
                     headers={"X-Bot-Secret": API_SECRET},
-                    timeout=aiohttp.ClientTimeout(total=60),  # Render uxlab qolgan bo'lsa uyg'onishi uchun
+                    timeout=aiohttp.ClientTimeout(total=45),
                 ) as resp:
                     body = await resp.text()
                     logging.info(f"tg-link javobi (urinish {attempt}): {resp.status} {body[:200]}")
                     if resp.status == 200:
                         return True
-                    # 4xx xatolar (401 secret mos emas, 400 noto'g'ri ma'lumot) qayta urinish bilan tuzalmaydi
                     if 400 <= resp.status < 500:
                         return False
         except Exception as e:
@@ -165,10 +170,6 @@ async def link_phone_to_backend(phone: str, chat_id: int) -> bool:
 
 
 def get_bottom_menu(user_id: int) -> ReplyKeyboardMarkup:
-    """
-    Raqam ulanmagan: foydalanuvchi 4 ta, admin 5 ta tugma.
-    Raqam ulangan: "Raqamni ulashish" tugmasi yo'qoladi (3 ta / 4 ta).
-    """
     rows = []
     if not get_phone(user_id):
         rows.append([KeyboardButton(text=BTN_SHARE, request_contact=True)])
@@ -281,7 +282,6 @@ async def cmd_start(message: Message) -> None:
         )
         return
 
-    # Bazada raqam yo'q bo'lsa, backend'da borligini tekshiramiz (baza o'chib ketgan bo'lishi mumkin)
     if not get_phone(user_id) and await backend_is_linked(message.chat.id):
         set_phone(user_id, "linked")
 
@@ -324,11 +324,11 @@ async def on_contact(message: Message) -> None:
         await cmd_start(message)
         return
 
-    phone = re.sub(r"\D", "", contact.phone_number or "")
+    phone = normalize_phone(contact.phone_number or "")
     ok = await link_phone_to_backend(phone, message.chat.id)
 
     if ok:
-        set_phone(user_id, phone)  # shundan keyin "Raqamni ulashish" tugmasi menyudan yo'qoladi
+        set_phone(user_id, phone)
         await message.answer(
             "✅ Raqamingiz saqlandi.\nEndi saytga qaytib, «Kod yuborish» tugmasini bosing.",
             reply_markup=get_bottom_menu(user_id),
@@ -360,25 +360,6 @@ async def menu_download_apk(message: Message) -> None:
         return
 
     if APK_GITHUB_URL and "USERNAME/REPO" not in APK_GITHUB_URL:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(APK_GITHUB_URL, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                    if resp.status == 200:
-                        with tempfile.NamedTemporaryFile(suffix=".apk", delete=False) as tmp:
-                            tmp.write(await resp.read())
-                            tmp_path = Path(tmp.name)
-                        try:
-                            await message.answer_document(
-                                document=FSInputFile(tmp_path, filename="Smart_Sartaroshxona.apk"),
-                                caption="📱 Smart Sartaroshxona dasturi (GitHub).\nO'rnatish uchun faylni oching.",
-                                reply_markup=get_bottom_menu(user_id),
-                            )
-                            return
-                        finally:
-                            tmp_path.unlink(missing_ok=True)
-        except Exception as e:
-            logging.warning(f"GitHub APK yuklashda xato: {e}")
-
         markup = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="📥 APK ni GitHub'dan yuklash", url=APK_GITHUB_URL)]]
         )
@@ -491,7 +472,7 @@ async def main() -> None:
     runner = await start_web_server()
     try:
         logging.info("Bot polling ishga tushmoqda...")
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, handle_signals=False)
     finally:
         await runner.cleanup()
         await bot.session.close()
