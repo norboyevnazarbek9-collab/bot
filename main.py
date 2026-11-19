@@ -39,8 +39,7 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "https://sartaroshuz.onrender.com").
 APK_GITHUB_URL = os.environ.get(
     "APK_GITHUB_URL",
     "https://github.com/USERNAME/REPO/releases/latest/download/app-release.apk",
-)
-API_SECRET = os.environ.get("5446d3ff161880da938d2c56a07f208c", "").strip()
+)API_SECRET = os.environ.get("BOT_API_SECRET", "").strip() or "072d36a42a7289926409bc7448efc9a3"
 if not API_SECRET:
     logging.warning("BOT_API_SECRET kiritilmagan! Raqamni backend'ga ulash ishlamaydi.")
 
