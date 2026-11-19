@@ -27,7 +27,8 @@ BASE_DIR = Path(__file__).parent
 DB_PATH = Path(os.environ.get("DB_PATH", BASE_DIR / "bot_base.db"))
 LOCAL_APK_PATH = Path(os.environ.get("APK_PATH", BASE_DIR / "app-release.apk"))
 
-TOKEN = os.environ.get("BOT_TOKEN", "8669831808:AAGZ0ihdnCszuIdEysGjTBnOFXYEM2N76Cw").strip()
+# Token faqat Render Environment'dan olinadi (kod ichida yozilmaydi)
+TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 if not TOKEN:
     raise SystemExit("BOT_TOKEN environment variable kiritilmagan!")
 
@@ -40,7 +41,7 @@ APK_GITHUB_URL = os.environ.get(
     "APK_GITHUB_URL",
     "https://github.com/USERNAME/REPO/releases/latest/download/app-release.apk",
 )
-API_SECRET = os.environ.get("BOT_API_SECRET", "").strip()
+API_SECRET = os.environ.get("5446d3ff161880da938d2c56a07f208c", "").strip()
 if not API_SECRET:
     logging.warning("BOT_API_SECRET kiritilmagan! Raqamni backend'ga ulash ishlamaydi.")
 
@@ -120,30 +121,44 @@ async def backend_is_linked(chat_id: int) -> bool:
                 timeout=aiohttp.ClientTimeout(total=20),
             ) as resp:
                 if resp.status != 200:
+                    logging.warning(f"tg-linked javobi: {resp.status}")
                     return False
                 data = await resp.json()
                 return bool(data.get("linked"))
     except Exception as e:
-        logging.warning(f"Backend'dan ulanganlikni tekshirishda xato: {e}")
+        logging.warning(f"Backend'dan ulanganlikni tekshirishda xato: {e!r}")
         return False
 
 
 async def link_phone_to_backend(phone: str, chat_id: int) -> bool:
-    """Raqam va chat_id ni backend (PostgreSQL) ga yozadi."""
+    """Raqam va chat_id ni backend (PostgreSQL) ga yozadi. Vaqtinchalik xatoda 3 marta urinadi."""
     if not API_SECRET:
+        logging.error("BOT_API_SECRET yo'q, so'rov yuborilmadi!")
         return False
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{BACKEND_URL}/api/tg-link",
-                json={"phone": phone, "chatId": chat_id},
-                headers={"X-Bot-Secret": API_SECRET},
-                timeout=aiohttp.ClientTimeout(total=60),  # Render uxlab qolgan bo'lsa uyg'onishi uchun
-            ) as resp:
-                return resp.status == 200
-    except Exception as e:
-        logging.error(f"Raqamni backend'ga ulashda xato: {e}")
-        return False
+
+    for attempt in range(1, 4):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{BACKEND_URL}/api/tg-link",
+                    json={"phone": phone, "chatId": chat_id},
+                    headers={"X-Bot-Secret": API_SECRET},
+                    timeout=aiohttp.ClientTimeout(total=60),  # Render uxlab qolgan bo'lsa uyg'onishi uchun
+                ) as resp:
+                    body = await resp.text()
+                    logging.info(f"tg-link javobi (urinish {attempt}): {resp.status} {body[:200]}")
+                    if resp.status == 200:
+                        return True
+                    # 4xx xatolar (401 secret mos emas, 400 noto'g'ri ma'lumot) qayta urinish bilan tuzalmaydi
+                    if 400 <= resp.status < 500:
+                        return False
+        except Exception as e:
+            logging.error(f"Raqamni backend'ga ulashda xato (urinish {attempt}): {e!r}")
+
+        if attempt < 3:
+            await asyncio.sleep(3)
+
+    return False
 
 
 def get_bottom_menu(user_id: int) -> ReplyKeyboardMarkup:
