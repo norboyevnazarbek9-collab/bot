@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).parent
 DB_PATH = Path(os.environ.get("DB_PATH", BASE_DIR / "bot_base.db"))
 LOCAL_APK_PATH = Path(os.environ.get("APK_PATH", BASE_DIR / "app-release.apk"))
 
-TOKEN = os.environ.get("BOT_TOKEN", "8669831808:AAGppcCwyaxfR4g4w9MLbZt4iLwb4v6sPLA").strip()
+TOKEN = os.environ.get("BOT_TOKEN", "8669831808:AAGZ0ihdnCszuIdEysGjTBnOFXYEM2N76Cw").strip()
 if not TOKEN:
     raise SystemExit("BOT_TOKEN environment variable kiritilmagan!")
 
