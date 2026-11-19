@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).parent
 DB_PATH = Path(os.environ.get("DB_PATH", BASE_DIR / "bot_base.db"))
 LOCAL_APK_PATH = Path(os.environ.get("APK_PATH", BASE_DIR / "app-release.apk"))
 
-TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+TOKEN = os.environ.get("8669831808:AAGppcCwyaxfR4g4w9MLbZt4iLwb4v6sPLA", "").strip()
 if not TOKEN:
     raise SystemExit("BOT_TOKEN environment variable kiritilmagan!")
 
@@ -66,11 +66,27 @@ def init_db() -> None:
             )
             """
         )
+        # Eski bazada phone ustuni bo'lmasa, qo'shamiz
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(users)")]
+        if "phone" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN phone TEXT")
         conn.commit()
 
 
 def get_db() -> sqlite3.Connection:
     return sqlite3.connect(DB_PATH)
+
+
+def get_phone(user_id: int):
+    with get_db() as conn:
+        row = conn.execute("SELECT phone FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def set_phone(user_id: int, phone: str) -> None:
+    with get_db() as conn:
+        conn.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, user_id))
+        conn.commit()
 
 
 init_db()
@@ -91,13 +107,55 @@ async def check_subscription(user_id: int) -> bool:
         return False
 
 
+async def backend_is_linked(chat_id: int) -> bool:
+    """Backend'da bu chat_id uchun raqam saqlanganmi (baza o'chib ketgan holat uchun)."""
+    if not API_SECRET:
+        return False
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{BACKEND_URL}/api/tg-linked",
+                params={"chatId": chat_id},
+                headers={"X-Bot-Secret": API_SECRET},
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                if resp.status != 200:
+                    return False
+                data = await resp.json()
+                return bool(data.get("linked"))
+    except Exception as e:
+        logging.warning(f"Backend'dan ulanganlikni tekshirishda xato: {e}")
+        return False
+
+
+async def link_phone_to_backend(phone: str, chat_id: int) -> bool:
+    """Raqam va chat_id ni backend (PostgreSQL) ga yozadi."""
+    if not API_SECRET:
+        return False
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{BACKEND_URL}/api/tg-link",
+                json={"phone": phone, "chatId": chat_id},
+                headers={"X-Bot-Secret": API_SECRET},
+                timeout=aiohttp.ClientTimeout(total=60),  # Render uxlab qolgan bo'lsa uyg'onishi uchun
+            ) as resp:
+                return resp.status == 200
+    except Exception as e:
+        logging.error(f"Raqamni backend'ga ulashda xato: {e}")
+        return False
+
+
 def get_bottom_menu(user_id: int) -> ReplyKeyboardMarkup:
-    # Foydalanuvchi: 4 ta tugma. Admin: 5 ta tugma.
-    rows = [
-        [KeyboardButton(text=BTN_SHARE, request_contact=True)],
-        [KeyboardButton(text=BTN_APK)],
-        [KeyboardButton(text=BTN_WEB), KeyboardButton(text=BTN_CONTACT)],
-    ]
+    """
+    Raqam ulanmagan: foydalanuvchi 4 ta, admin 5 ta tugma.
+    Raqam ulangan: "Raqamni ulashish" tugmasi yo'qoladi (3 ta / 4 ta).
+    """
+    rows = []
+    if not get_phone(user_id):
+        rows.append([KeyboardButton(text=BTN_SHARE, request_contact=True)])
+    rows.append([KeyboardButton(text=BTN_APK)])
+    rows.append([KeyboardButton(text=BTN_WEB), KeyboardButton(text=BTN_CONTACT)])
     if user_id == ADMIN_ID:
         rows.append([KeyboardButton(text=BTN_ADMIN)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -132,13 +190,19 @@ def build_subscribe_keyboard() -> InlineKeyboardMarkup:
 
 
 async def show_main_menu(chat_id: int, user_id: int) -> None:
+    if get_phone(user_id):
+        hint = "Pastki menyudan kerakli bo'limni tanlang:"
+    else:
+        hint = (
+            "Saytda ro'yxatdan o'tish uchun avval «📱 Raqamni ulashish» tugmasini bosing.\n"
+            "Pastki menyudan kerakli bo'limni tanlang:"
+        )
     await bot.send_message(
         chat_id=chat_id,
         text=(
             "Assalomu alaykum! Xush kelibsiz.\n"
             f"🆔 Sizning Telegram ID: `{user_id}`\n\n"
-            "Saytda ro'yxatdan o'tish uchun avval «📱 Raqamni ulashish» tugmasini bosing.\n"
-            "Pastki menyudan kerakli bo'limni tanlang:"
+            f"{hint}"
         ),
         reply_markup=get_bottom_menu(user_id),
         parse_mode="Markdown",
@@ -164,24 +228,6 @@ def get_stats_text() -> str:
         f"🌐 Web Panel: {WEB_PANEL_URL}\n"
         f"👤 Admin: {ADMIN_USERNAME}"
     )
-
-
-async def link_phone_to_backend(phone: str, chat_id: int) -> bool:
-    """Raqam va chat_id ni backend (PostgreSQL) ga yozadi."""
-    if not API_SECRET:
-        return False
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{BACKEND_URL}/api/tg-link",
-                json={"phone": phone, "chatId": chat_id},
-                headers={"X-Bot-Secret": API_SECRET},
-                timeout=aiohttp.ClientTimeout(total=60),  # Render uxlab qolgan bo'lsa uyg'onishi uchun
-            ) as resp:
-                return resp.status == 200
-    except Exception as e:
-        logging.error(f"Raqamni backend'ga ulashda xato: {e}")
-        return False
 
 
 # --- /start VA MAJBURIY OBUNA ---
@@ -217,6 +263,10 @@ async def cmd_start(message: Message) -> None:
         )
         return
 
+    # Bazada raqam yo'q bo'lsa, backend'da borligini tekshiramiz (baza o'chib ketgan bo'lishi mumkin)
+    if not get_phone(user_id) and await backend_is_linked(message.chat.id):
+        set_phone(user_id, "linked")
+
     await show_main_menu(message.chat.id, user_id)
 
 
@@ -230,7 +280,10 @@ async def process_check_sub(callback: CallbackQuery) -> None:
             await callback.message.delete()
         except Exception:
             pass
-        await show_main_menu(callback.message.chat.id, callback.from_user.id)
+        user_id = callback.from_user.id
+        if not get_phone(user_id) and await backend_is_linked(callback.message.chat.id):
+            set_phone(user_id, "linked")
+        await show_main_menu(callback.message.chat.id, user_id)
         await callback.answer()
     else:
         await callback.answer("Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
@@ -257,6 +310,7 @@ async def on_contact(message: Message) -> None:
     ok = await link_phone_to_backend(phone, message.chat.id)
 
     if ok:
+        set_phone(user_id, phone)  # shundan keyin "Raqamni ulashish" tugmasi menyudan yo'qoladi
         await message.answer(
             "✅ Raqamingiz saqlandi.\nEndi saytga qaytib, «Kod yuborish» tugmasini bosing.",
             reply_markup=get_bottom_menu(user_id),
