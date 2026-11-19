@@ -28,7 +28,7 @@ DB_PATH = Path(os.environ.get("DB_PATH", BASE_DIR / "bot_base.db"))
 LOCAL_APK_PATH = Path(os.environ.get("APK_PATH", BASE_DIR / "app-release.apk"))
 
 # Token faqat Render Environment'dan olinadi (kod ichida yozilmaydi)
-TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+TOKEN = os.environ.get("8669831808:AAGpBsBqSfEUpFAaySmfA_5sVZeT9JTPBpg", "").strip()
 if not TOKEN:
     raise SystemExit("BOT_TOKEN environment variable kiritilmagan!")
 
