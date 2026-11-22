@@ -49,7 +49,7 @@ if not API_SECRET:
 
 # --- MENYU TUGMALARI ---
 BTN_SHARE = "📱 Raqamni ulashish"
-BTN_APK = "📲 Smart Sartaroshxona yuklash"
+BTN_APK = "📲 SOMSA POS DASTURINI YUKLASH"
 BTN_WEB = "🌐 Web Panel"
 BTN_CONTACT = "💬 Adminga murojaat"
 BTN_ADMIN = "👑 Admin Panel"
